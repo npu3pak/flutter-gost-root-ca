@@ -1,6 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="ru.example.gost_root_ca_android">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Network Security Config с корнем Минцифры (res/xml/gost_network_security_config.xml).
          Атрибут мержится в application-элемент хост-приложения. Если у хоста есть
