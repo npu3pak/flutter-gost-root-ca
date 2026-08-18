@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system"/>
+            <!-- Корневой сертификат НУЦ Минцифры России (Russian Trusted Root CA):
+                 TLS-цепочки Минцифры (например, www.sberbank.ru) заканчиваются
+                 этим корнем, которого нет в системном хранилище Android.
+                 Источник: https://www.gosuslugi.ru/crt
+                 Файл — копия PEM из gost_root_ca/lib/src/gost_root_cert.dart;
+                 при ротации корня обновлять ОБА файла. -->
+            <certificates src="@raw/gost_russian_trusted_root_ca"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,27 @@
+name: gost_root_ca_ios
+description: "iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA"
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  gost_root_ca:
+    path: ../gost_root_ca
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    implements: gost_root_ca
+    platforms:
+      ios:
+        pluginClass: GostRootCaIosPlugin
+        dartPluginClass: GostRootCaIos

@@ -1,0 +1,12 @@
+build/
+.dart_tool/
+.flutter-plugins-dependencies
+.gradle/
+Pods/
+.symlinks/
+ephemeral/
+*.iml
+.idea/
+.vscode/
+.DS_Store
+*.log

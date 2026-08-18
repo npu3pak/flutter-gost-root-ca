@@ -1,0 +1,22 @@
+name: gost_root_ca
+description: "GOST root CA (Russian Trusted Root CA) support for all Flutter network stacks"
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.1.8
+  gost_root_ca_android:
+    path: ../gost_root_ca_android
+  gost_root_ca_ios:
+    path: ../gost_root_ca_ios
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

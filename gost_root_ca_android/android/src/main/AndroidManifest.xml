@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="ru.example.gost_root_ca_android">
+
+    <!-- Network Security Config с корнем Минцифры (res/xml/gost_network_security_config.xml).
+         Атрибут мержится в application-элемент хост-приложения. Если у хоста есть
+         собственный networkSecurityConfig — добавьте в его манифест
+         tools:replace="android:networkSecurityConfig". -->
+    <application
+        android:networkSecurityConfig="@xml/gost_network_security_config"
+        tools:targetApi="24" />
+</manifest>

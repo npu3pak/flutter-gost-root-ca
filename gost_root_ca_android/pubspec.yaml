@@ -1,0 +1,28 @@
+name: gost_root_ca_android
+description: "Android implementation of gost_root_ca: Network Security Config with Russian Trusted Root CA"
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  gost_root_ca:
+    path: ../gost_root_ca
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    implements: gost_root_ca
+    platforms:
+      android:
+        package: ru.example.gost_root_ca_android
+        pluginClass: GostRootCaAndroidPlugin
+        dartPluginClass: GostRootCaAndroid
