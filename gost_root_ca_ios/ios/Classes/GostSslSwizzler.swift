@@ -56,6 +56,11 @@ final class GostSslSwizzler {
     /// Минцифры — прошла. Если стандартная оценка проходит, возвращает false:
     /// такие соединения плагин не трогает и отдаёт оригинальному делегату
     /// (иначе ломался бы SSL-pinning хост-приложения).
+    ///
+    /// Оценка с якорями делается на копии trust: если и с якорями не прошло,
+    /// оригинальный делегат получает нетронутый `SecTrust`. Якоря
+    /// подставляются в исходный trust только при успехе — из него потом
+    /// строится `URLCredential(trust:)`.
     static func isTrustedViaGostAnchor(_ trust: SecTrust) -> Bool {
         var error: CFError?
         if SecTrustEvaluateWithError(trust, &error) {
@@ -63,9 +68,42 @@ final class GostSslSwizzler {
         }
 
         guard !anchorCertificates.isEmpty else { return false }
-        SecTrustSetAnchorCertificates(trust, anchorCertificates as CFArray)
-        SecTrustSetAnchorCertificatesOnly(trust, false)
-        return SecTrustEvaluateWithError(trust, &error)
+
+        let anchors = anchorCertificates as CFArray
+        let candidate = copyTrust(trust) ?? trust
+        SecTrustSetAnchorCertificates(candidate, anchors)
+        SecTrustSetAnchorCertificatesOnly(candidate, false)
+        guard SecTrustEvaluateWithError(candidate, &error) else {
+            return false
+        }
+
+        if candidate !== trust {
+            SecTrustSetAnchorCertificates(trust, anchors)
+            SecTrustSetAnchorCertificatesOnly(trust, false)
+        }
+        return true
+    }
+
+    /// Копия trust (та же цепочка сертификатов и те же политики), чтобы не
+    /// мутировать trust из челленджа при неуспешной оценке.
+    private static func copyTrust(_ trust: SecTrust) -> SecTrust? {
+        let certificates: [SecCertificate]
+        if #available(iOS 15.0, *) {
+            certificates = (SecTrustCopyCertificateChain(trust) as? [SecCertificate]) ?? []
+        } else {
+            certificates = (0..<SecTrustGetCertificateCount(trust)).compactMap {
+                SecTrustGetCertificateAtIndex(trust, $0)
+            }
+        }
+        guard !certificates.isEmpty else { return nil }
+
+        var policies: CFArray?
+        SecTrustCopyPolicies(trust, &policies)
+
+        var copy: SecTrust?
+        let status = SecTrustCreateWithCertificates(certificates as CFArray, policies, &copy)
+        guard status == errSecSuccess else { return nil }
+        return copy
     }
 
     /// Server trust из челленджа, если это server trust challenge.
@@ -152,6 +190,13 @@ final class GostSslSwizzler {
             WKWebView.self,
             #selector(setter: WKWebView.navigationDelegate),
             #selector(WKWebView.setNavigationDelegate_gostSwizzled(_:))
+        )
+        // Геттер отдаёт делегат хоста, а не прокси — иначе ломаются
+        // identity-сравнения вида `webView.navigationDelegate === self`.
+        swizzleInstanceMethod(
+            WKWebView.self,
+            #selector(getter: WKWebView.navigationDelegate),
+            #selector(WKWebView.navigationDelegate_gostSwizzled)
         )
     }
 }
@@ -316,7 +361,7 @@ private final class GostSessionDelegateProxy: NSObject, URLSessionDelegate, URLS
 /// пересылаются оригинальному делегату. Оригинал удерживается слабо —
 /// как и сам `WKWebView.navigationDelegate`.
 private final class GostNavigationDelegateProxy: NSObject, WKNavigationDelegate {
-    private weak var original: AnyObject?
+    private(set) weak var original: AnyObject?
 
     init(original: AnyObject) {
         self.original = original
@@ -376,5 +421,16 @@ private final class GostNavigationDelegateProxy: NSObject, WKNavigationDelegate 
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
         setNavigationDelegate_gostSwizzled(proxy)
+    }
+
+    /// Замена геттера `navigationDelegate`: если внутри стоит наш прокси —
+    /// возвращаем делегат хоста, как он его и ставил.
+    @objc func navigationDelegate_gostSwizzled() -> WKNavigationDelegate? {
+        // После обмена реализаций этот вызов — оригинальный геттер.
+        let current = navigationDelegate_gostSwizzled()
+        if let proxy = current as? GostNavigationDelegateProxy {
+            return proxy.original as? WKNavigationDelegate
+        }
+        return current
     }
 }

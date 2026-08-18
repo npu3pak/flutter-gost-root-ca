@@ -50,8 +50,10 @@ www.sberbank.ru) перестают падать с ошибками прове�
        <true/>
    </dict>
    ```
-   Без этого ATS блокирует соединения с цепочками НУЦ Минцифры
-   (проявляется как `-1202` в WKWebView).
+   Без ATS-исключения соединения с цепочками НУЦ Минцифры блокируются
+   (`-1200/-9802` в URLSession, `-1202` в WKWebView). Глобальный
+   `NSAllowsArbitraryLoads` — самый широкий вариант; более узкие
+   альтернативы см. в разделе «ATS (iOS)».
 
 Это всё. Android-конфигурация (Network Security Config с корнем Минцифры)
 приходит из плагина автоматически.
@@ -205,10 +207,41 @@ WebView сообщает приложению «сертификат не под
 
 #### ATS (iOS)
 
-Дополнительно Apple требует «политику безопасного соединения» (ATS). Без
-`NSAllowsArbitraryLoads` в Info.plist ATS блокирует соединения с цепочками
-Минцифры ещё **до** проверки доверия — поэтому это обязательный шаг
-интеграции (см. «Интеграция»).
+Дополнительно Apple требует «политику безопасного соединения» (ATS).
+Помимо TLS 1.2+/PFS/размера ключа, ATS требует, чтобы цепочка сходилась к
+корню, встроенному в ОС или установленному пользователем/MDM; якоря,
+подставленные через `SecTrustSetAnchorCertificates`, ATS не учитывает.
+Поэтому без исключения в Info.plist соединения с цепочками Минцифры
+блокируются ещё **до** проверки доверия — ATS-исключение обязательно.
+Подтверждено на устройстве.
+
+Что именно ставить — зависит от того, где ходите на гостовские хосты
+(dart:io — dio, http, картинки — ATS не касается вообще):
+
+| Сценарий | Ключ в `NSAppTransportSecurity` |
+|---|---|
+| Гостовские хосты перечислимы (банки, госсервисы) | `NSExceptionDomains` → домен → `NSIncludesSubdomains = true`, `NSExceptionAllowsInsecureHTTPLoads = true` — ATS для остальных доменов остаётся |
+| Гостовский трафик только в WKWebView | `NSAllowsArbitraryLoadsInWebContent = true` — URLSession остаётся под ATS |
+| Произвольные хосты и в URLSession, и в WebView | `NSAllowsArbitraryLoads = true`; строгость для своего бэкенда можно вернуть через `NSExceptionDomains` с `NSExceptionAllowsInsecureHTTPLoads = false` |
+
+Пример точечного исключения:
+
+```xml
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSExceptionDomains</key>
+    <dict>
+        <key>sberbank.ru</key>
+        <dict>
+            <key>NSIncludesSubdomains</key><true/>
+            <key>NSExceptionAllowsInsecureHTTPLoads</key><true/>
+        </dict>
+    </dict>
+</dict>
+```
+
+Example-приложение использует глобальный `NSAllowsArbitraryLoads`, потому
+что тестирует все поверхности на произвольных хостах.
 
 #### Как включается
 
@@ -284,12 +317,4 @@ Future<void> GostRootCa.enable({String? certPem});
   (стандартные CA работают и без плагина). Всё, что создаётся после
   регистрации, покрыто независимо от того, когда и был ли вызван
   `GostRootCa.enable()`.
-- **Task-specific делегаты (iOS 15+)** — если у задачи задан свой
-  `task.delegate` (или используется `URLSession.data(for:delegate:)`) и он
-  сам реализует `urlSession(_:task:didReceive:completionHandler:)`, server
-  trust уходит ему, минуя прокси сессии. Такому делегату нужно вызвать
-  оценку с якорем самостоятельно.
-- Плагинные/нативные сессии, созданные **до** первого вызова
-  `GostRootCa.enable()`, на iOS не получают протокол (стандартные CA
-  работают и без него).
 
