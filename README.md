@@ -56,6 +56,64 @@ www.sberbank.ru) перестают падать с ошибками прове�
 Это всё. Android-конфигурация (Network Security Config с корнем Минцифры)
 приходит из плагина автоматически.
 
+### Если у вас уже есть свой `networkSecurityConfig` (Android)
+
+Плагин подключает свой конфиг через манифест. Если в проекте уже объявлен
+свой `networkSecurityConfig` — возникает конфликт мерджера, а содержимое
+конфигов **не объединяется автоматически**: ваш конфиг заменяет конфиг
+плагина, поэтому корень Минцифры нужно добавить в него вручную.
+
+**1. Положите сертификат в свой проект.**
+
+Скопируйте корневой сертификат Минцифры (тот же PEM-текст, что в
+`gost_root_ca/lib/src/gost_root_cert.dart`) в:
+
+```
+android/app/src/main/res/raw/russian_trusted_root_ca.pem
+```
+
+Готовый файл можно взять из плагина:
+`gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
+
+**2. Дополните свой конфиг** — `android/app/src/main/res/xml/network_security_config.xml`.
+
+В блок `<trust-anchors>` добавьте строку:
+
+```xml
+<certificates src="@raw/russian_trusted_root_ca" />
+```
+
+Итоговый конфиг:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/russian_trusted_root_ca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+```
+
+**3. Подключите в манифесте** — `android/app/src/main/AndroidManifest.xml`
+(`tools:replace` снимает конфликт с атрибутом плагина):
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:replace="android:networkSecurityConfig"
+        ...>
+```
+
+*Альтернатива:* можно сослаться на ресурс плагина напрямую —
+`@raw/gost_russian_trusted_root_ca` (ресурсы AAR доступны хосту, проверено
+по merged-ресурсам). Но собственная копия в проекте надёжнее: не зависит
+от внутренних имён плагина.
+
 ## Описание технического решения
 
 ### В чём проблема
@@ -163,64 +221,6 @@ dart:io-часть (REST Flutter, изображения) на Android рабо�
 
 Системные браузеры (SFSafariViewController / Chrome Custom Tabs), фоновые
 iOS-сессии и некоторые редкие пути — см. «Ограничения».
-
-## Если у вас уже есть свой `networkSecurityConfig` (Android)
-
-Плагин подключает свой конфиг через манифест. Если в проекте уже объявлен
-свой `networkSecurityConfig` — возникает конфликт мерджера, а содержимое
-конфигов **не объединяется автоматически**: ваш конфиг заменяет конфиг
-плагина, поэтому корень Минцифры нужно добавить в него вручную.
-
-**1. Положите сертификат в свой проект.**
-
-Скопируйте корневой сертификат Минцифры (тот же PEM-текст, что в
-`gost_root_ca/lib/src/gost_root_cert.dart`) в:
-
-```
-android/app/src/main/res/raw/russian_trusted_root_ca.pem
-```
-
-Готовый файл можно взять из плагина:
-`gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
-
-**2. Дополните свой конфиг** — `android/app/src/main/res/xml/network_security_config.xml`.
-
-В блок `<trust-anchors>` добавьте строку:
-
-```xml
-<certificates src="@raw/russian_trusted_root_ca" />
-```
-
-Итоговый конфиг:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <base-config>
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="@raw/russian_trusted_root_ca" />
-        </trust-anchors>
-    </base-config>
-</network-security-config>
-```
-
-**3. Подключите в манифесте** — `android/app/src/main/AndroidManifest.xml`
-(`tools:replace` снимает конфликт с атрибутом плагина):
-
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-    <application
-        android:networkSecurityConfig="@xml/network_security_config"
-        tools:replace="android:networkSecurityConfig"
-        ...>
-```
-
-*Альтернатива:* можно сослаться на ресурс плагина напрямую —
-`@raw/gost_russian_trusted_root_ca` (ресурсы AAR доступны хосту, проверено
-по merged-ресурсам). Но собственная копия в проекте надёжнее: не зависит
-от внутренних имён плагина.
 
 ## API
 
