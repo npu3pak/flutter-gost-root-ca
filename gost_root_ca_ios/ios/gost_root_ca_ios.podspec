@@ -5,9 +5,9 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
 iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA
                        DESC
-  s.homepage         = 'https://github.com/npu3rak/flutter-gost-root-ca'
+  s.homepage         = 'https://github.com/npu3pak/flutter-gost-root-ca'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'npu3rak' => 'npu3rak@users.noreply.github.com' }
+  s.author           = 'npu3pak'
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
