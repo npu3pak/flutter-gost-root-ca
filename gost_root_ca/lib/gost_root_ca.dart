@@ -28,7 +28,8 @@ class GostRootCa {
     // dart:io — все HttpClient создаются с корнями платформы + корнем Минцифры.
     HttpOverrides.global = GostHttpOverrides(certPem: pem);
 
-    // Нативная сторона (iOS — свиззлинг, Android — no-op).
+    // Нативная сторона (iOS — (пере)установка якоря; свиззлы и встроенный
+    // корень стоят с регистрации плагина; Android — no-op).
     await GostRootCaPlatform.instance.enable(pem);
   }
 }
