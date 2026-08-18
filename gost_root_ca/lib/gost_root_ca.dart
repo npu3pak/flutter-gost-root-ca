@@ -33,7 +33,8 @@ class GostRootCa {
     final previous = current is GostHttpOverrides ? current.previous : current;
     HttpOverrides.global = GostHttpOverrides(certPem: pem, previous: previous);
 
-    // Нативная сторона (iOS — свиззлинг, Android — no-op).
+    // Нативная сторона (iOS — (пере)установка якоря; свиззлы и встроенный
+    // корень стоят с регистрации плагина; Android — no-op).
     await GostRootCaPlatform.instance.enable(pem);
   }
 }

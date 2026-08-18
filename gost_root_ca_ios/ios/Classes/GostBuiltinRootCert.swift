@@ -1,21 +1,21 @@
-/// Корневой сертификат «Russian Trusted Root CA» (НУЦ Минцифры России).
+import Foundation
+
+/// Встроенный корневой сертификат «Russian Trusted Root CA» (НУЦ Минцифры России).
 /// Самоподписанный, RSA 4096 / SHA-256, serial 1000,
 /// действует с 01.03.2022 по 27.02.2032.
-/// TLS-цепочки Минцифры (например, www.sberbank.ru) заканчиваются
-/// этим корнем, поэтому без него гостовские сайты не проходят
-/// проверку сертификата.
-/// Источник: официальный сайт НУЦ Минцифры, раздел
-/// «Русский доверенный корень» — https://www.gosuslugi.ru/crt
+/// Источник: https://www.gosuslugi.ru/crt
 ///
-/// ВНИМАНИЕ: источник сертификата для dart:io (HttpOverrides) и значение
-/// по умолчанию для enable(). Копии того же PEM хранятся ещё в:
-/// - gost_root_ca_ios/ios/Classes/GostBuiltinRootCert.swift (iOS, ставится
-///   при регистрации плагина);
-/// - gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem
-///   (Android Network Security Config).
+/// Нужен, чтобы iOS-часть плагина была полностью рабочей с момента
+/// регистрации плагина (`GostRootCaIosPlugin.register(with:)`), до старта
+/// Dart и без ожидания вызова `GostRootCa.enable()`: сессии, создаваемые
+/// другими плагинами/SDK при регистрации, уже получают прокси с якорем.
+///
+/// ВНИМАНИЕ: копия PEM из gost_root_ca/lib/src/gost_root_cert.dart.
+/// Тот же корень хранится ещё в
+/// gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem.
 /// При ротации корня обновлять ВСЕ ТРИ файла.
-abstract final class GostRootCert {
-  static const pem = '''
+enum GostBuiltinRootCert {
+    static let pem = """
 -----BEGIN CERTIFICATE-----
 MIIFwjCCA6qgAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwcDELMAkGA1UEBhMCUlUx
 PzA9BgNVBAoMNlRoZSBNaW5pc3RyeSBvZiBEaWdpdGFsIERldmVsb3BtZW50IGFu
@@ -49,5 +49,5 @@ D9EUUn4YaeLaS8AjSF/h7UkjOibNc4qVDiPP+rkehFWM66PVnP1Msh93tc+taIfC
 EYVMxjh8zNbFuoc7fzvvrFILLe7ifvEIUqSVIC/AzplM/Jxw7buXFeGP1qVCBEHq
 391d/9RAfaZ12zkwFsl+IKwE/OZxW8AHa9i1p4GO0YSNuczzEm4=
 -----END CERTIFICATE-----
-''';
+"""
 }

@@ -212,9 +212,14 @@ WebView сообщает приложению «сертификат не под
 
 #### Как включается
 
-`GostRootCa.enable()` из Dart отправляет PEM-текст корня через MethodChannel
-`gost_root_ca`; нативная сторона выполняет все подмены и запоминает корень.
-Никакого нативного кода в хост-приложении не требуется.
+Свиззлы и встроенный корень (`GostBuiltinRootCert.swift`) ставятся уже при
+регистрации плагина — в `GeneratedPluginRegistrant.register`, до старта Dart
+и до того, как другие плагины/SDK создадут свои `URLSession`. Поэтому
+нативная часть на iOS работает сама по себе, без ожидания Dart.
+`GostRootCa.enable()` нужен для dart:io (`HttpOverrides`) и, если передан
+свой `certPem`, переопределяет корень на нативной стороне через
+MethodChannel `gost_root_ca`. Никакого нативного кода в хост-приложении
+не требуется.
 
 ### 3. Android: нативные стеки (Network Security Config)
 
@@ -248,11 +253,13 @@ Future<void> GostRootCa.enable({String? certPem});
 
 ## Сертификат
 
-Корень хранится в **двух** местах (обновлять оба при ротации):
+Корень хранится в **трёх** местах (обновлять все при ротации):
 
 1. `gost_root_ca/lib/src/gost_root_cert.dart` — dart:io
-   (HttpOverrides) и iOS (через канал);
-2. `gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
+   (HttpOverrides) и значение по умолчанию для `enable()`;
+2. `gost_root_ca_ios/ios/Classes/GostBuiltinRootCert.swift` — iOS,
+   встроенный корень, ставится при регистрации плагина;
+3. `gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
    — Android Network Security Config.
 
 Источник сертификата: https://www.gosuslugi.ru/crt
@@ -271,6 +278,18 @@ Future<void> GostRootCa.enable({String? certPem});
   сам реализует `urlSession(_:task:didReceive:completionHandler:)`, server
   trust уходит ему, минуя прокси сессии. Такому делегату нужно вызвать
   оценку с якорем самостоятельно.
+- Нативные сессии, созданные **до** регистрации плагинов
+  (`GeneratedPluginRegistrant.register`) — например, в `+load` или в
+  статиках нативного кода до `didFinishLaunching`, — на iOS не покрываются
+  (стандартные CA работают и без плагина). Всё, что создаётся после
+  регистрации, покрыто независимо от того, когда и был ли вызван
+  `GostRootCa.enable()`.
+- **Task-specific делегаты (iOS 15+)** — если у задачи задан свой
+  `task.delegate` (или используется `URLSession.data(for:delegate:)`) и он
+  сам реализует `urlSession(_:task:didReceive:completionHandler:)`, server
+  trust уходит ему, минуя прокси сессии. Такому делегату нужно вызвать
+  оценку с якорем самостоятельно.
 - Плагинные/нативные сессии, созданные **до** первого вызова
   `GostRootCa.enable()`, на iOS не получают протокол (стандартные CA
   работают и без него).
+
