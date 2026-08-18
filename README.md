@@ -146,7 +146,7 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 |---|---|---|
 | REST на Flutter-стороне (dio, http) | движок dart:io (общий для iOS и Android) | `HttpOverrides.global` |
 | Изображения (`Image.network`, cached_network_image) | тот же dart:io | `HttpOverrides.global` |
-| REST на нативной стороне (iOS `URLSession`) | системный сетевой стек | method swizzling + `URLProtocol` |
+| REST на нативной стороне (iOS `URLSession`) | системный сетевой стек | method swizzling: прокси делегата сессии |
 | REST на нативной стороне (Android `HttpURLConnection`) | системный стек Android | Network Security Config |
 | WebView на Flutter-стороне (webview_flutter) | iOS: `WKWebView`; Android: системный WebView | iOS — прокси делегата; Android — NSC |
 | WebView на нативном экране | то же самое | то же самое |
@@ -161,6 +161,12 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 Минцифры. Поэтому отдельно настраивать dio, http или картинки не нужно:
 достаточно одного вызова `GostRootCa.enable()`.
 
+Если в приложении уже стоит свой `HttpOverrides.global` (дебаг-прокси,
+логирование), плагин его не затирает: прежний оверрайд становится звеном
+цепочки — ему делегируются создание клиента и `findProxyFromEnvironment`,
+а контекст с корнем Минцифры подставляется вместо `null`. Повторный
+`enable()` не наслаивает оверрайд сам на себя.
+
 ### 2. iOS: нативные стеки
 
 #### URLSession (нативный REST, HTTP плагинов)
@@ -168,15 +174,23 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 У Apple нет способа «просто добавить корень глобально». Поэтому плагин
 применяет **method swizzling** — официально разрешённую технику подмены
 системных методов на этапе выполнения:
-- конфигурации сессий (`.default`/`.ephemeral`) и сам `+[NSURLSession
-  sharedSession]` подменяются так, что во **все** создаваемые сессии
-  попадает перехватчик запросов (`GostSSLProtocol`, реализованный на
-  штатном механизме `URLProtocol`);
-- перехватчик получает серверный сертификат, сначала оценивает его
-  стандартно; если не прошло — добавляет корень Минцифры в якоря
-  (`SecTrustSetAnchorCertificates`) и оценивает ещё раз;
+- конструкторы сессий (`+sessionWithConfiguration:`,
+  `+sessionWithConfiguration:delegate:delegateQueue:`) и сам
+  `+[NSURLSession sharedSession]` подменяются так, что делегат **каждой**
+  создаваемой сессии оборачивается в прокси (по той же схеме, что в
+  TrustKit); сессия без делегата получает прокси с пустым оригиналом;
+- прокси перехватывает **только** server trust challenge: сначала
+  сертификат оценивается стандартно; если не прошло — добавляется корень
+  Минцифры в якоря (`SecTrustSetAnchorCertificates`) и оценка повторяется;
 - если цепочка сходится к корню Минцифры — соединение пропускается
-  (`useCredential`), иначе отклоняется, как и раньше.
+  (`useCredential`); во всех остальных случаях (стандартная оценка прошла,
+  не прошла даже с якорем, не-trust челлендж — Basic auth, client cert)
+  вызов **уходит оригинальному делегату** или в default handling, как и
+  без плагина. Поэтому SSL-pinning и mTLS хост-приложения продолжают
+  работать.
+
+Сам запрос при этом не переигрывается: конфигурация сессии, cookies, кэш,
+прокси, HTTP/2, редиректы, метрики — остаются как есть.
 
 #### WKWebView (WebView Flutter и нативный WebView)
 
@@ -253,19 +267,29 @@ Future<void> GostRootCa.enable({String? certPem});
 ## Ограничения
 
 - **iOS background-сессии** (`URLSessionConfiguration.background`) —
-  `URLProtocol` с ними официально несовместим (документация Apple),
-  фоновые запросы выполняет системный демон. Варианты: делегат сессии
-  с якорями Минцифры (работает, пока приложение живо; в суспенде — риск
-  таймаутов), установленный на устройстве профиль с корнем, либо
-  обычная сессия / dart:io (`HttpOverrides`).
+  прокси-делегат работает, пока приложение живо (челлендж доставляется
+  делегату); если задача выполняется системным демоном в суспенде —
+  риск таймаута. Варианты: установленный на устройстве профиль с корнем,
+  либо обычная сессия / dart:io (`HttpOverrides`).
 - **SFSafariViewController / Chrome Custom Tabs** — системные браузеры в
   отдельных процессах; нужен установленный на устройстве корень.
-- **`URLSessionConfiguration()`** (plain init, iOS) — невалидный путь:
-  крэшит создание сессии, не поддерживается. Конфиги — только через
-  `.default`/`.ephemeral`/`.background`.
+- **Task-specific делегаты (iOS 15+)** — если у задачи задан свой
+  `task.delegate` (или используется `URLSession.data(for:delegate:)`) и он
+  сам реализует `urlSession(_:task:didReceive:completionHandler:)`, server
+  trust уходит ему, минуя прокси сессии. Такому делегату нужно вызвать
+  оценку с якорем самостоятельно.
 - Нативные сессии, созданные **до** регистрации плагинов
   (`GeneratedPluginRegistrant.register`) — например, в `+load` или в
   статиках нативного кода до `didFinishLaunching`, — на iOS не покрываются
   (стандартные CA работают и без плагина). Всё, что создаётся после
   регистрации, покрыто независимо от того, когда и был ли вызван
   `GostRootCa.enable()`.
+- **Task-specific делегаты (iOS 15+)** — если у задачи задан свой
+  `task.delegate` (или используется `URLSession.data(for:delegate:)`) и он
+  сам реализует `urlSession(_:task:didReceive:completionHandler:)`, server
+  trust уходит ему, минуя прокси сессии. Такому делегату нужно вызвать
+  оценку с якорем самостоятельно.
+- Плагинные/нативные сессии, созданные **до** первого вызова
+  `GostRootCa.enable()`, на iOS не получают протокол (стандартные CA
+  работают и без него).
+

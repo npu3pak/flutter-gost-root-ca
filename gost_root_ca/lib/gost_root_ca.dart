@@ -26,7 +26,12 @@ class GostRootCa {
     final pem = certPem ?? GostRootCert.pem;
 
     // dart:io — все HttpClient создаются с корнями платформы + корнем Минцифры.
-    HttpOverrides.global = GostHttpOverrides(certPem: pem);
+    // Уже стоящий оверрайд приложения (прокси, логирование) не затирается,
+    // а становится звеном цепочки; повторный enable() не наслаивает
+    // GostHttpOverrides сам на себя.
+    final current = HttpOverrides.current;
+    final previous = current is GostHttpOverrides ? current.previous : current;
+    HttpOverrides.global = GostHttpOverrides(certPem: pem, previous: previous);
 
     // Нативная сторона (iOS — (пере)установка якоря; свиззлы и встроенный
     // корень стоят с регистрации плагина; Android — no-op).

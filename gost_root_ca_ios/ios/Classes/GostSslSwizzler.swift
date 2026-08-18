@@ -4,26 +4,27 @@ import WebKit
 /// Глобальная поддержка корневого сертификата Минцифры (Russian Trusted Root CA)
 /// на iOS через method swizzling:
 ///
-/// 1. URLSession: в protocolClasses конфигураций `.default`/`.ephemeral`
-///    добавляется GostSSLProtocol (URLProtocol), который оценивает серверный
-///    сертификат с якорями Минцифры (механизм по мотивам netfox).
-/// 2. WKWebView: navigationDelegate оборачивается в прокси-обёртку
-///    (`NSObject` + `WKNavigationDelegate`), добавляющую обработку
-///    server trust challenge с теми же якорями (сетевой стек WebKit
-///    живёт в отдельных процессах, поэтому работает только делегатный уровень).
+/// 1. URLSession: конструкторы `+sessionWithConfiguration:` /
+///    `+sessionWithConfiguration:delegate:delegateQueue:` и `+sharedSession`
+///    подменяются так, что делегат каждой сессии оборачивается в прокси
+///    (`GostSessionDelegateProxy`). Прокси перехватывает только server trust
+///    challenge: если стандартная оценка не прошла, а с якорем Минцифры —
+///    прошла, соединение пропускается; во всех остальных случаях челлендж
+///    уходит оригинальному делегату (или в default handling). Сам запрос,
+///    конфигурация сессии, cookies, кэш, HTTP/2, редиректы, mTLS — не трогаются.
+/// 2. WKWebView: navigationDelegate оборачивается в такой же прокси
+///    (сетевой стек WebKit живёт в отдельных процессах, поэтому работает
+///    только делегатный уровень).
 ///
 /// Единственная точка входа — `applyOnce(certPem:)` из Dart через MethodChannel
-/// `gost_root_ca` (метод `enable`). Тайминг не критичен: свиззл
-/// `+[NSURLSession sharedSession]`
-/// возвращает сессию с GostSSLProtocol при любом обращении, а WKWebView
-/// создаётся по требованию уже после вызова.
+/// `gost_root_ca` (метод `enable`).
 final class GostSslSwizzler {
     private static var isInstalled = false
     private static var anchorCertificates: [SecCertificate] = []
 
     private init() {}
 
-    /// Единая точка входа: устанавливает оба свиззла (если ещё не сделано)
+    /// Единая точка входа: устанавливает свиззлы (если ещё не сделано)
     /// и обновляет якоря Минцифры из PEM. Идемпотентна, повторные вызовы
     /// безопасны.
     static func applyOnce(certPem: String) {
@@ -31,13 +32,13 @@ final class GostSslSwizzler {
         setAnchorCertificates(certPem: certPem)
     }
 
-    /// Устанавливает оба свиззла (идемпотентно). Якоря пока пустые —
-    /// isTrusted работает как стандартная оценка доверия.
+    /// Устанавливает свиззлы (идемпотентно). Якоря пока пустые —
+    /// прокси ведут себя прозрачно.
     static func installSwizzles() {
         guard !isInstalled else { return }
         isInstalled = true
 
-        swizzleURLSessionConfiguration()
+        swizzleURLSessionConstructors()
         swizzleSharedSession()
         swizzleWKWebViewNavigationDelegate()
     }
@@ -51,17 +52,28 @@ final class GostSslSwizzler {
         }
     }
 
-    /// Оценка доверия: сначала стандартная, при неудаче — с якорями Минцифры.
-    static func isTrusted(_ trust: SecTrust) -> Bool {
+    /// true только если стандартная оценка доверия НЕ прошла, а с якорями
+    /// Минцифры — прошла. Если стандартная оценка проходит, возвращает false:
+    /// такие соединения плагин не трогает и отдаёт оригинальному делегату
+    /// (иначе ломался бы SSL-pinning хост-приложения).
+    static func isTrustedViaGostAnchor(_ trust: SecTrust) -> Bool {
         var error: CFError?
         if SecTrustEvaluateWithError(trust, &error) {
-            return true
+            return false
         }
 
         guard !anchorCertificates.isEmpty else { return false }
         SecTrustSetAnchorCertificates(trust, anchorCertificates as CFArray)
         SecTrustSetAnchorCertificatesOnly(trust, false)
         return SecTrustEvaluateWithError(trust, &error)
+    }
+
+    /// Server trust из челленджа, если это server trust challenge.
+    static func serverTrust(of challenge: URLAuthenticationChallenge) -> SecTrust? {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
+            return nil
+        }
+        return challenge.protectionSpace.serverTrust
     }
 
     // MARK: - PEM
@@ -111,26 +123,19 @@ final class GostSslSwizzler {
         return true
     }
 
-    private static func swizzleURLSessionConfiguration() {
-        let configClass: AnyClass = object_getClass(URLSessionConfiguration.default)!
-
-        // Дедупликация protocolClasses — GostSSLProtocol не должен добавиться дважды.
-        swizzleInstanceMethod(
-            configClass,
-            #selector(setter: URLSessionConfiguration.protocolClasses),
-            #selector(setter: URLSessionConfiguration.protocolClasses_gostSwizzled)
-        )
-
-        let sessionClass: AnyClass = object_getClass(URLSessionConfiguration.self)!
+    /// Свиззлит оба фабричных конструктора NSURLSession. Swift-инициализаторы
+    /// `URLSession(configuration:)` и `URLSession(configuration:delegate:delegateQueue:)`
+    /// импортированы именно из этих class-методов.
+    private static func swizzleURLSessionConstructors() {
         swizzleClassMethod(
-            sessionClass,
-            #selector(getter: URLSessionConfiguration.default),
-            #selector(getter: URLSessionConfiguration.default_gostSwizzled)
+            URLSession.self,
+            NSSelectorFromString("sessionWithConfiguration:"),
+            NSSelectorFromString("gost_sessionWithConfiguration:")
         )
         swizzleClassMethod(
-            sessionClass,
-            #selector(getter: URLSessionConfiguration.ephemeral),
-            #selector(getter: URLSessionConfiguration.ephemeral_gostSwizzled)
+            URLSession.self,
+            NSSelectorFromString("sessionWithConfiguration:delegate:delegateQueue:"),
+            NSSelectorFromString("gost_sessionWithConfiguration:delegate:delegateQueue:")
         )
     }
 
@@ -151,140 +156,137 @@ final class GostSslSwizzler {
     }
 }
 
-// MARK: - URLSessionConfiguration: инъекция GostSSLProtocol
-
-@objc extension URLSessionConfiguration {
-    @objc var protocolClasses_gostSwizzled: [AnyClass]? {
-        get {
-            return protocolClasses_gostSwizzled
-        }
-        set {
-            guard let newTypes = newValue else {
-                protocolClasses_gostSwizzled = nil
-                return
-            }
-            var types: [AnyClass] = []
-            for newType in newTypes {
-                if !types.contains(where: { $0 == newType }) {
-                    types.append(newType)
-                }
-            }
-            protocolClasses_gostSwizzled = types
-        }
-    }
-
-    @objc class var default_gostSwizzled: URLSessionConfiguration {
-        get {
-            let config = default_gostSwizzled
-            config.protocolClasses?.insert(GostSSLProtocol.self, at: 0)
-            return config
-        }
-    }
-
-    @objc class var ephemeral_gostSwizzled: URLSessionConfiguration {
-        get {
-            let config = ephemeral_gostSwizzled
-            config.protocolClasses?.insert(GostSSLProtocol.self, at: 0)
-            return config
-        }
-    }
-}
-
-// MARK: - URLSession.shared: сессия с GostSSLProtocol
+// MARK: - URLSession: конструкторы с прокси-делегатом
 
 @objc extension URLSession {
-    private static var gostSharedSessionCache: URLSession?
+    /// Замена `+sessionWithConfiguration:` (Swift: `URLSession(configuration:)`).
+    /// Сессия без делегата получает прокси с пустым оригиналом — он отвечает
+    /// только на server trust challenge, всё остальное ведёт себя как без делегата.
+    @objc(gost_sessionWithConfiguration:)
+    class func gost_session(configuration: URLSessionConfiguration) -> URLSession {
+        return gost_makeSession(configuration: configuration, delegate: nil, delegateQueue: nil)
+    }
 
-    /// Замена +[NSURLSession sharedSession]: возвращает сессию на основе
-    /// свиззленного `.default`-конфига (с GostSSLProtocol). Даже если
-    /// оригинальный sharedSession был создан до свиззлинга, наружу
-    /// отдаётся наша сессия.
-    @objc class var gostSharedSession: URLSession {
-        get {
-            if let cached = gostSharedSessionCache {
-                return cached
-            }
-            let session = URLSession(configuration: .default)
-            gostSharedSessionCache = session
-            return session
-        }
+    /// Замена `+sessionWithConfiguration:delegate:delegateQueue:`
+    /// (Swift: `URLSession(configuration:delegate:delegateQueue:)`).
+    @objc(gost_sessionWithConfiguration:delegate:delegateQueue:)
+    class func gost_session(
+        configuration: URLSessionConfiguration,
+        delegate: URLSessionDelegate?,
+        delegateQueue: OperationQueue?
+    ) -> URLSession {
+        return gost_makeSession(configuration: configuration, delegate: delegate, delegateQueue: delegateQueue)
+    }
+
+    private class func gost_makeSession(
+        configuration: URLSessionConfiguration,
+        delegate: URLSessionDelegate?,
+        delegateQueue: OperationQueue?
+    ) -> URLSession {
+        let proxy = GostSessionDelegateProxy.wrap(delegate)
+        // После обмена реализаций этот селектор указывает на оригинальный
+        // +sessionWithConfiguration:delegate:delegateQueue:.
+        return gost_session(configuration: configuration, delegate: proxy, delegateQueue: delegateQueue)
     }
 }
 
-// MARK: - GostSSLProtocol
+// MARK: - URLSession.shared: сессия с прокси-делегатом
 
-@objc
-private final class GostSSLProtocol: URLProtocol, URLSessionDataDelegate {
-    private static let internalKey = "ru.example.gost_cert_checker.gost_ssl"
-
-    private lazy var session: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = config.protocolClasses?.filter { $0 != GostSSLProtocol.self }
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+@objc extension URLSession {
+    /// Ленивая инициализация `static let` потокобезопасна.
+    @nonobjc private static let gostSharedSessionInstance: URLSession = {
+        // Идёт через свиззленный конструктор — делегат-прокси подставится сам.
+        return URLSession(configuration: .default)
     }()
 
-    private var dataTask: URLSessionDataTask?
+    /// Замена `+[NSURLSession sharedSession]`: у настоящей shared-сессии
+    /// делегата нет и добавить его нельзя, поэтому наружу отдаётся своя
+    /// сессия на `.default`-конфиге с прокси-делегатом.
+    @objc class var gostSharedSession: URLSession {
+        return gostSharedSessionInstance
+    }
+}
 
-    override class func canInit(with request: URLRequest) -> Bool {
-        return canServe(request)
+// MARK: - URLSession: прокси делегата
+
+/// Обёртка над делегатом URLSession. Перехватывает только server trust
+/// challenge (на уровне сессии и на уровне задачи), остальные вызовы
+/// прозрачно уходят оригинальному делегату через forwarding.
+///
+/// Схема ответа на `respondsToSelector:` повторяет TrustKit:
+/// - task-level challenge — всегда YES: если у оригинала нет session-level
+///   метода, Foundation доставит server trust сюда;
+/// - session-level challenge — YES только если его реализует оригинал:
+///   тогда Foundation доставит server trust сюда, а мы перешлём оригиналу.
+/// Так перехват гарантирован в обоих случаях, а оригинал получает ровно те
+/// вызовы, на которые подписан.
+///
+/// Оригинал удерживается сильно: URLSession удерживает свой делегат сильно
+/// до invalidate, и семантика для хоста должна сохраниться (частый паттерн —
+/// `URLSession(configuration:delegate: Handler(), delegateQueue:)` без
+/// других ссылок на Handler).
+private final class GostSessionDelegateProxy: NSObject, URLSessionDelegate, URLSessionTaskDelegate {
+    private static let sessionChallengeSelector =
+        NSSelectorFromString("URLSession:didReceiveChallenge:completionHandler:")
+    private static let taskChallengeSelector =
+        NSSelectorFromString("URLSession:task:didReceiveChallenge:completionHandler:")
+
+    let original: URLSessionDelegate?
+
+    private init(original: URLSessionDelegate?) {
+        self.original = original
     }
 
-    override class func canInit(with task: URLSessionTask) -> Bool {
-        guard let request = task.currentRequest else { return false }
-        return canServe(request)
-    }
-
-    private class func canServe(_ request: URLRequest) -> Bool {
-        guard URLProtocol.property(forKey: internalKey, in: request) == nil,
-              let scheme = request.url?.scheme?.lowercased() else {
-            return false
+    /// Оборачивает делегат; уже обёрнутый не оборачивает повторно
+    /// (`+sessionWithConfiguration:` внутри может вызывать трёхаргументный
+    /// конструктор — иначе получили бы прокси над прокси).
+    static func wrap(_ delegate: URLSessionDelegate?) -> URLSessionDelegate {
+        if let proxy = delegate as? GostSessionDelegateProxy {
+            return proxy
         }
-        return scheme == "https"
+        return GostSessionDelegateProxy(original: delegate)
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        return request
+    override func responds(to aSelector: Selector!) -> Bool {
+        if aSelector == GostSessionDelegateProxy.taskChallengeSelector {
+            return true
+        }
+        return original?.responds(to: aSelector) ?? false
     }
 
-    override func startLoading() {
-        let mutableRequest = (request as NSURLRequest).mutableCopy() as! NSMutableURLRequest
-        URLProtocol.setProperty(true, forKey: GostSSLProtocol.internalKey, in: mutableRequest)
-        dataTask = session.dataTask(with: mutableRequest as URLRequest)
-        dataTask?.resume()
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        return original
     }
 
-    override func stopLoading() {
-        dataTask?.cancel()
-        session.invalidateAndCancel()
+    override func conforms(to aProtocol: Protocol) -> Bool {
+        if super.conforms(to: aProtocol) {
+            return true
+        }
+        return original?.conforms(to: aProtocol) ?? false
     }
 
-    // MARK: URLSessionDataDelegate
+    // MARK: session-level challenge
 
     func urlSession(
         _ session: URLSession,
-        dataTask: URLSessionDataTask,
-        didReceive response: URLResponse,
-        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        completionHandler(.allow)
-    }
+        if let trust = GostSslSwizzler.serverTrust(of: challenge),
+           GostSslSwizzler.isTrustedViaGostAnchor(trust) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+            return
+        }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        client?.urlProtocol(self, didLoad: data)
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didCompleteWithError error: Error?
-    ) {
-        if let error = error {
-            client?.urlProtocol(self, didFailWithError: error)
+        if let original = original,
+           original.responds(to: GostSessionDelegateProxy.sessionChallengeSelector) {
+            original.urlSession?(session, didReceive: challenge, completionHandler: completionHandler)
         } else {
-            client?.urlProtocolDidFinishLoading(self)
+            completionHandler(.performDefaultHandling, nil)
         }
     }
+
+    // MARK: task-level challenge
 
     func urlSession(
         _ session: URLSession,
@@ -292,16 +294,17 @@ private final class GostSSLProtocol: URLProtocol, URLSessionDataDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let serverTrust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.performDefaultHandling, nil)
+        if let trust = GostSslSwizzler.serverTrust(of: challenge),
+           GostSslSwizzler.isTrustedViaGostAnchor(trust) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
             return
         }
 
-        if GostSslSwizzler.isTrusted(serverTrust) {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        if let original = original as? URLSessionTaskDelegate,
+           original.responds(to: GostSessionDelegateProxy.taskChallengeSelector) {
+            original.urlSession?(session, task: task, didReceive: challenge, completionHandler: completionHandler)
         } else {
-            completionHandler(.cancelAuthenticationChallenge, nil)
+            completionHandler(.performDefaultHandling, nil)
         }
     }
 }
@@ -310,7 +313,8 @@ private final class GostSSLProtocol: URLProtocol, URLSessionDataDelegate {
 
 /// Обёртка над реальным navigationDelegate: добавляет обработку
 /// server trust challenge с якорями Минцифры, остальные вызовы
-/// пересылаются оригинальному делегату.
+/// пересылаются оригинальному делегату. Оригинал удерживается слабо —
+/// как и сам `WKWebView.navigationDelegate`.
 private final class GostNavigationDelegateProxy: NSObject, WKNavigationDelegate {
     private weak var original: AnyObject?
 
@@ -334,18 +338,15 @@ private final class GostNavigationDelegateProxy: NSObject, WKNavigationDelegate 
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let serverTrust = challenge.protectionSpace.serverTrust else {
-            if let original = original as? WKNavigationDelegate {
-                original.webView?(webView, didReceive: challenge, completionHandler: completionHandler)
-            } else {
-                completionHandler(.performDefaultHandling, nil)
-            }
+        if let trust = GostSslSwizzler.serverTrust(of: challenge),
+           GostSslSwizzler.isTrustedViaGostAnchor(trust) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
             return
         }
 
-        if GostSslSwizzler.isTrusted(serverTrust) {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+        if let original = original as? WKNavigationDelegate,
+           original.responds(to: #selector(WKNavigationDelegate.webView(_:didReceive:completionHandler:))) {
+            original.webView?(webView, didReceive: challenge, completionHandler: completionHandler)
         } else {
             completionHandler(.performDefaultHandling, nil)
         }
