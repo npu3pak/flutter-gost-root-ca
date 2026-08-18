@@ -15,11 +15,22 @@ www.sberbank.ru) перестают падать с ошибками прове�
 
 ## Интеграция
 
-1. Добавьте зависимость в `pubspec.yaml`:
+1. Добавьте зависимость в `pubspec.yaml` — локально (монорепо):
+
    ```yaml
    gost_root_ca:
      path: plugins/gost_root_ca/gost_root_ca
    ```
+
+   или с GitHub:
+
+   ```yaml
+   gost_root_ca:
+     git:
+       url: https://github.com/npu3pak/flutter-gost-root-ca.git
+       path: gost_root_ca
+   ```
+
 2. Вызовите один раз при старте приложения:
    ```dart
    import 'package:gost_root_ca/gost_root_ca.dart';
@@ -55,14 +66,14 @@ www.sberbank.ru) перестают падать с ошибками прове�
 **1. Положите сертификат в свой проект.**
 
 Скопируйте корневой сертификат Минцифры (тот же PEM-текст, что в
-`gost_root_ca/gost_root_ca/lib/src/gost_root_cert.dart`) в:
+`gost_root_ca/lib/src/gost_root_cert.dart`) в:
 
 ```
 android/app/src/main/res/raw/russian_trusted_root_ca.pem
 ```
 
 Готовый файл можно взять из плагина:
-`plugins/gost_root_ca/gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
+`gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
 
 **2. Дополните свой конфиг** — `android/app/src/main/res/xml/network_security_config.xml`.
 
@@ -117,9 +128,9 @@ Future<void> GostRootCa.enable({String? certPem});
 
 Корень хранится в **двух** местах (обновлять оба при ротации):
 
-1. `gost_root_ca/gost_root_ca/lib/src/gost_root_cert.dart` — dart:io
+1. `gost_root_ca/lib/src/gost_root_cert.dart` — dart:io
    (HttpOverrides) и iOS (через канал);
-2. `gost_root_ca/gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
+2. `gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
    — Android Network Security Config.
 
 Источник сертификата: https://www.gosuslugi.ru/crt
