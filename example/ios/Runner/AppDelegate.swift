@@ -65,7 +65,7 @@ import Flutter
 
     // Свиззл +[NSURLSession sharedSession] выполнен плагином gost_root_ca
     // при старте Dart — доступ к URLSession.shared возвращает сессию
-    // с GostSSLProtocol.
+    // с прокси-делегатом, обрабатывающим server trust с якорем Минцифры.
     URLSession.shared.dataTask(with: request) { _, response, error in
       var map: [String: Any] = ["success": error == nil]
       if let http = response as? HTTPURLResponse {
