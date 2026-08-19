@@ -10,6 +10,7 @@ iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian 
   s.author           = 'npu3pak'
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
+  s.resource_bundles = { 'gost_root_ca_ios_privacy' => ['Resources/PrivacyInfo.xcprivacy'] }
   s.dependency 'Flutter'
   s.platform = :ios, '13.0'
 
