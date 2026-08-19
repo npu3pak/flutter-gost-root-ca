@@ -11,14 +11,6 @@ void main() {
       HttpOverrides.global = null;
     });
 
-    test('сертификат Минцифры добавляется в доверенные корни', () {
-      HttpOverrides.global = GostHttpOverrides();
-
-      final client = HttpClient();
-      expect(client, isNotNull);
-      client.close();
-    });
-
     test('HttpClient() создаётся через оверрайд', () {
       HttpOverrides.global = GostHttpOverrides();
 
