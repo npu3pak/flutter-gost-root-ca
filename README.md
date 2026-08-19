@@ -52,8 +52,8 @@ www.sberbank.ru) перестают падать с ошибками прове�
    ```
    Без ATS-исключения соединения с цепочками НУЦ Минцифры блокируются
    (`-1200/-9802` в URLSession, `-1202` в WKWebView). Глобальный
-   `NSAllowsArbitraryLoads` — самый широкий вариант; более узкие
-   альтернативы см. в разделе «ATS (iOS)».
+   `NSAllowsArbitraryLoads` — единственный подтверждённый вариант; почему
+   более узкие исключения не подходят — см. раздел «ATS (iOS)».
 
 Это всё. Android-конфигурация (Network Security Config с корнем Минцифры)
 приходит из плагина автоматически.
@@ -215,30 +215,21 @@ WebView сообщает приложению «сертификат не под
 блокируются ещё **до** проверки доверия — ATS-исключение обязательно.
 Подтверждено на устройстве.
 
-Что именно ставить — зависит от того, где ходите на гостовские хосты
-(dart:io — dio, http, картинки — ATS не касается вообще):
-
-| Сценарий | Ключ в `NSAppTransportSecurity` |
-|---|---|
-| Гостовские хосты перечислимы (банки, госсервисы) | `NSExceptionDomains` → домен → `NSIncludesSubdomains = true`, `NSExceptionAllowsInsecureHTTPLoads = true` — ATS для остальных доменов остаётся |
-| Гостовский трафик только в WKWebView | `NSAllowsArbitraryLoadsInWebContent = true` — URLSession остаётся под ATS |
-| Произвольные хосты и в URLSession, и в WebView | `NSAllowsArbitraryLoads = true`; строгость для своего бэкенда можно вернуть через `NSExceptionDomains` с `NSExceptionAllowsInsecureHTTPLoads = false` |
-
-Пример точечного исключения:
+Единственный подтверждённый вариант — глобальный `NSAllowsArbitraryLoads`:
 
 ```xml
 <key>NSAppTransportSecurity</key>
 <dict>
-    <key>NSExceptionDomains</key>
-    <dict>
-        <key>sberbank.ru</key>
-        <dict>
-            <key>NSIncludesSubdomains</key><true/>
-            <key>NSExceptionAllowsInsecureHTTPLoads</key><true/>
-        </dict>
-    </dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
 </dict>
 ```
+
+Более узкие варианты (`NSExceptionDomains`, `NSAllowsArbitraryLoadsInWebContent`)
+для цепочек НУЦ Минцифры **не работают** (проверено на устройстве): ATS-
+исключения для доменов не отключают проверку корня для HTTPS, а
+`NSExceptionAllowsInsecureHTTPLoads` относится только к HTTP-загрузкам.
+dart:io (dio, http, картинки) эти ключи не затрагивают вообще.
 
 Example-приложение использует глобальный `NSAllowsArbitraryLoads`, потому
 что тестирует все поверхности на произвольных хостах.

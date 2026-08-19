@@ -58,9 +58,11 @@ final class GostSslSwizzler {
     /// (иначе ломался бы SSL-pinning хост-приложения).
     ///
     /// Оценка с якорями делается на копии trust: если и с якорями не прошло,
-    /// оригинальный делегат получает нетронутый `SecTrust`. Якоря
-    /// подставляются в исходный trust только при успехе — из него потом
-    /// строится `URLCredential(trust:)`.
+    /// оригинальный делегат получает нетронутый `SecTrust`. Если копию
+    /// построить нельзя — прозрачный отказ (считаем «не доверено»), чтобы
+    /// никогда не оценивать с якорями trust без оригинальных политик.
+    /// Якоря подставляются в исходный trust только при успехе — из него
+    /// потом строится `URLCredential(trust:)`.
     static func isTrustedViaGostAnchor(_ trust: SecTrust) -> Bool {
         var error: CFError?
         if SecTrustEvaluateWithError(trust, &error) {
@@ -69,23 +71,23 @@ final class GostSslSwizzler {
 
         guard !anchorCertificates.isEmpty else { return false }
 
+        guard let candidate = copyTrust(trust) else { return false }
         let anchors = anchorCertificates as CFArray
-        let candidate = copyTrust(trust) ?? trust
         SecTrustSetAnchorCertificates(candidate, anchors)
         SecTrustSetAnchorCertificatesOnly(candidate, false)
         guard SecTrustEvaluateWithError(candidate, &error) else {
             return false
         }
 
-        if candidate !== trust {
-            SecTrustSetAnchorCertificates(trust, anchors)
-            SecTrustSetAnchorCertificatesOnly(trust, false)
-        }
+        SecTrustSetAnchorCertificates(trust, anchors)
+        SecTrustSetAnchorCertificatesOnly(trust, false)
         return true
     }
 
     /// Копия trust (та же цепочка сертификатов и те же политики), чтобы не
-    /// мутировать trust из челленджа при неуспешной оценке.
+    /// мутировать trust из челленджа при неуспешной оценке. Копия строится
+    /// только с оригинальными политиками: без них (например, с default-политиками)
+    /// оценка не проверяла бы hostname — поэтому возвращается nil.
     private static func copyTrust(_ trust: SecTrust) -> SecTrust? {
         let certificates: [SecCertificate]
         if #available(iOS 15.0, *) {
@@ -98,7 +100,11 @@ final class GostSslSwizzler {
         guard !certificates.isEmpty else { return nil }
 
         var policies: CFArray?
-        SecTrustCopyPolicies(trust, &policies)
+        guard SecTrustCopyPolicies(trust, &policies) == errSecSuccess,
+              let policies,
+              CFArrayGetCount(policies) > 0 else {
+            return nil
+        }
 
         var copy: SecTrust?
         let status = SecTrustCreateWithCertificates(certificates as CFArray, policies, &copy)

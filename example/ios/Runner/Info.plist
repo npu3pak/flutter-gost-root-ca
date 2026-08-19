@@ -7,9 +7,9 @@
 		<!-- ATS-исключение обязательно: ATS не учитывает якоря, подставленные
 		     плагином, и блокирует цепочки НУЦ Минцифры (-1200/-9802 в
 		     URLSession, -1202 в WKWebView). Example использует глобальный
-		     NSAllowsArbitraryLoads, т.к. тестирует все поверхности на
-		     произвольных хостах; более узкие варианты (NSExceptionDomains,
-		     NSAllowsArbitraryLoadsInWebContent) — см. README, раздел «ATS». -->
+		     NSAllowsArbitraryLoads — единственный подтверждённый вариант;
+		     NSExceptionDomains/NSAllowsArbitraryLoadsInWebContent для цепочек
+		     НУЦ не работают (см. README, раздел «ATS»). -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>

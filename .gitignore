@@ -10,3 +10,4 @@ ephemeral/
 .vscode/
 .DS_Store
 *.log
+/references/
