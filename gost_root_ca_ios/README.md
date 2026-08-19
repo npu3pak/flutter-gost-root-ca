@@ -1,15 +1,12 @@
 # gost_root_ca_ios
 
-iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA
+Endorsed-реализация `gost_root_ca` для iOS.
 
-## Getting Started
+Доверие к корню НУЦ Минцифры (Russian Trusted Root CA) обеспечивается
+method swizzling'ом: делегаты URLSession-сессий и `navigationDelegate`
+WKWebView оборачиваются в прокси, перехватывающий только server trust
+challenge (схема как в TrustKit). Свиззлы и встроенный корень
+(`GostBuiltinRootCert.swift`) ставятся при регистрации плагина — до старта
+Dart; `GostRootCa.enable()` из Dart переопределяет корень при необходимости.
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
-
+Интеграция и ограничения — см. корневой `README.md`.

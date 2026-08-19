@@ -1,3 +1,5 @@
-## 0.0.1
+## 0.1.0
 
-* TODO: Describe initial release.
+- Endorsed-реализация gost_root_ca для Android: Network Security Config
+  с корнем Минцифры (системные корни + корень НУЦ), подключение через
+  манифест плагина; `enable()` — no-op.

@@ -13,16 +13,23 @@ www.sberbank.ru) перестают падать с ошибками прове�
 | `gost_root_ca_android/` | endorsed Android: Network Security Config (системные корни + корень Минцифры) |
 | `example/` | тестовое приложение: 5 поверхностей × 2 URL (yandex/sber) |
 
+## Требования
+
+- Dart `^3.8.0`, Flutter `>=3.32.0`;
+- iOS 13+ (podspec `gost_root_ca_ios`);
+- Android minSdk 24.
+
 ## Интеграция
 
-1. Добавьте зависимость в `pubspec.yaml` — локально (монорепо):
+1. Добавьте зависимость в `pubspec.yaml` — локально, из корня репозитория:
 
    ```yaml
    gost_root_ca:
-     path: plugins/gost_root_ca/gost_root_ca
+     path: gost_root_ca
    ```
 
-   или с GitHub:
+   Если репозиторий вложен в `plugins/` родительского проекта, путь
+   будет `plugins/gost_root_ca/gost_root_ca`; с GitHub — так:
 
    ```yaml
    gost_root_ca:
@@ -85,7 +92,7 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 <certificates src="@raw/russian_trusted_root_ca" />
 ```
 
-Итоговый конфиг:
+Пример итогового конфига:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -112,9 +119,10 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 ```
 
 *Альтернатива:* можно сослаться на ресурс плагина напрямую —
-`@raw/gost_russian_trusted_root_ca` (ресурсы AAR доступны хосту, проверено
-по merged-ресурсам). Но собственная копия в проекте надёжнее: не зависит
-от внутренних имён плагина.
+`@raw/gost_russian_trusted_root_ca` (ресурсы AAR-зависимости попадают
+в приложение при мердже ресурсов и доступны по своему имени). Но
+собственная копия в проекте надёжнее: не зависит от внутренних имён
+плагина.
 
 ## Описание технического решения
 
@@ -158,10 +166,10 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 Всё, что делает Flutter-код через `HttpClient` (а это dio, http-пакет,
 `Image.network`, `cached_network_image`), идёт через движок dart:io — он
 работает одинаково на iOS и Android. Плагин один раз устанавливает
-`HttpOverrides.global` — глобальный «почтальон», через которого создаются
-все HTTP-клиенты. В его списке доверия — системные корни **плюс** корень
-Минцифры. Поэтому отдельно настраивать dio, http или картинки не нужно:
-достаточно одного вызова `GostRootCa.enable()`.
+`HttpOverrides.global` — глобальную фабрику `HttpClient`: через неё
+создаются все HTTP-клиенты приложения. В его списке доверия — системные
+корни **плюс** корень Минцифры. Поэтому отдельно настраивать dio, http
+или картинки не нужно: достаточно одного вызова `GostRootCa.enable()`.
 
 Если в приложении уже стоит свой `HttpOverrides.global` (дебаг-прокси,
 логирование), плагин его не затирает: прежний оверрайд становится звеном
@@ -171,7 +179,7 @@ android/app/src/main/res/raw/russian_trusted_root_ca.pem
 
 ### 2. iOS: нативные стеки
 
-#### URLSession (нативный REST, HTTP плагинов)
+#### URLSession (нативный REST и HTTP-запросы плагинов)
 
 У Apple нет способа «просто добавить корень глобально». Поэтому плагин
 применяет **method swizzling** — официально разрешённую технику подмены
@@ -260,35 +268,7 @@ Android решает ту же задачу декларативно, без р�
 dart:io-часть (REST Flutter, изображения) на Android работает так же, как в
 п. 1.
 
-### 4. Что не покрывается
-
-Системные браузеры (SFSafariViewController / Chrome Custom Tabs), фоновые
-iOS-сессии и некоторые редкие пути — см. «Ограничения».
-
-## API
-
-```dart
-Future<void> GostRootCa.enable({String? certPem});
-```
-
-- По умолчанию используется встроенный корень Минцифры
-  (`GostRootCert.pem`).
-- Идемпотентен: повторные вызовы безопасны.
-
-## Сертификат
-
-Корень хранится в **трёх** местах (обновлять все при ротации):
-
-1. `gost_root_ca/lib/src/gost_root_cert.dart` — dart:io
-   (HttpOverrides) и значение по умолчанию для `enable()`;
-2. `gost_root_ca_ios/ios/Classes/GostBuiltinRootCert.swift` — iOS,
-   встроенный корень, ставится при регистрации плагина;
-3. `gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
-   — Android Network Security Config.
-
-Источник сертификата: https://www.gosuslugi.ru/crt
-
-## Ограничения
+## Ограничения (что не покрывается)
 
 - **iOS background-сессии** (`URLSessionConfiguration.background`) —
   прокси-делегат работает, пока приложение живо (челлендж доставляется
@@ -308,4 +288,27 @@ Future<void> GostRootCa.enable({String? certPem});
   (стандартные CA работают и без плагина). Всё, что создаётся после
   регистрации, покрыто независимо от того, когда и был ли вызван
   `GostRootCa.enable()`.
+
+## API
+
+```dart
+Future<void> GostRootCa.enable({String? certPem});
+```
+
+- По умолчанию используется встроенный корень Минцифры
+  (`GostRootCert.pem`).
+- Идемпотентен: повторные вызовы безопасны.
+
+## Сертификат
+
+Сертификат в плагине хранится в **трёх** местах (обновлять все при ротации):
+
+1. `gost_root_ca/lib/src/gost_root_cert.dart` — dart:io
+   (HttpOverrides) и значение по умолчанию для `enable()`;
+2. `gost_root_ca_ios/ios/Classes/GostBuiltinRootCert.swift` — iOS,
+   встроенный корень, ставится при регистрации плагина;
+3. `gost_root_ca_android/android/src/main/res/raw/gost_russian_trusted_root_ca.pem`
+   — Android Network Security Config.
+
+Источник сертификата: https://www.gosuslugi.ru/crt
 

@@ -16,24 +16,27 @@ import WebKit
 ///    (сетевой стек WebKit живёт в отдельных процессах, поэтому работает
 ///    только делегатный уровень).
 ///
-/// Единственная точка входа — `applyOnce(certPem:)` из Dart через MethodChannel
-/// `gost_root_ca` (метод `enable`).
+/// Точки входа:
+/// - `GostRootCaIosPlugin.register(with:)` — свиззлы и встроенный корень
+///   (GostBuiltinRootCert) устанавливаются при регистрации плагина, до
+///   старта Dart;
+/// - `applyOnce(certPem:)` из Dart через MethodChannel `gost_root_ca`
+///   (метод `enable`) — (пере)установка якорей.
 final class GostSslSwizzler {
     private static var isInstalled = false
     private static var anchorCertificates: [SecCertificate] = []
 
     private init() {}
 
-    /// Единая точка входа: устанавливает свиззлы (если ещё не сделано)
-    /// и обновляет якоря Минцифры из PEM. Идемпотентна, повторные вызовы
-    /// безопасны.
+    /// Устанавливает свиззлы (если ещё не сделано) и обновляет якоря
+    /// Минцифры из PEM. Идемпотентна, повторные вызовы безопасны.
     static func applyOnce(certPem: String) {
         installSwizzles()
         setAnchorCertificates(certPem: certPem)
     }
 
-    /// Устанавливает свиззлы (идемпотентно). Якоря пока пустые —
-    /// прокси ведут себя прозрачно.
+    /// Устанавливает свиззлы (идемпотентно). Пока якоря не установлены
+    /// (`setAnchorCertificates`), прокси ведут себя прозрачно.
     static func installSwizzles() {
         guard !isInstalled else { return }
         isInstalled = true

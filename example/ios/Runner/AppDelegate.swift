@@ -64,8 +64,10 @@ import Flutter
     request.timeoutInterval = 30
 
     // Свиззл +[NSURLSession sharedSession] выполнен плагином gost_root_ca
-    // при старте Dart — доступ к URLSession.shared возвращает сессию
-    // с прокси-делегатом, обрабатывающим server trust с якорем Минцифры.
+    // при регистрации плагинов (GeneratedPluginRegistrant.register в
+    // didFinishLaunching, до старта Dart) — доступ к URLSession.shared
+    // возвращает сессию с прокси-делегатом, обрабатывающим server trust
+    // с якорем Минцифры.
     URLSession.shared.dataTask(with: request) { _, response, error in
       var map: [String: Any] = ["success": error == nil]
       if let http = response as? HTTPURLResponse {

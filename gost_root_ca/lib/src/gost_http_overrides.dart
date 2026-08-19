@@ -35,9 +35,9 @@ class GostHttpOverrides extends HttpOverrides {
   static String? _securityContextPem;
 
   /// Создаёт HttpClient с единым хранилищем доверенных корней:
-  /// корни платформы + корень Минцифры (если он прошёл проверку).
-  /// Явно переданный [context] уважается — наш подставляется только
-  /// вместо `null`.
+  /// корни платформы + корень Минцифры (если PEM удалось добавить
+  /// в хранилище). Явно переданный [context] уважается — наш
+  /// подставляется только вместо `null`.
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     final effective = context ?? _getSecurityContext();
