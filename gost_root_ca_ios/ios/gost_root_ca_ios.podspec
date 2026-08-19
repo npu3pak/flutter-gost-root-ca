@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'gost_root_ca_ios'
-  s.version          = '0.1.0'
+  s.version          = '0.2.0'
   s.summary          = 'iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA'
   s.description      = <<-DESC
 iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA

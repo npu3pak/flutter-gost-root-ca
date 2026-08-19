@@ -1,6 +1,6 @@
 name: gost_root_ca_ios
 description: "iOS implementation of gost_root_ca: URLSession/WKWebView swizzling with Russian Trusted Root CA"
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 
 environment:

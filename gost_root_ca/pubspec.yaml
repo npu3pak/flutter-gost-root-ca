@@ -1,6 +1,6 @@
 name: gost_root_ca
 description: "GOST root CA (Russian Trusted Root CA) support for all Flutter network stacks"
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 
 environment:

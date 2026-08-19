@@ -1,3 +1,7 @@
+## 0.2.0
+
+- Убран `package=` из манифеста библиотеки (совместимость с AGP 8.x).
+
 ## 0.1.0
 
 - Endorsed-реализация gost_root_ca для Android: Network Security Config
